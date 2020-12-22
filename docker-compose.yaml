@@ -1,0 +1,31 @@
+version: "3.7"
+services:
+  postgres:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: hP_6rQPSsJAwJM@b
+      POSTGRES_USER: pgadmin
+      POSTGRES_APP_USER: goapp
+      POSTGRES_APP_USER_PASSWORD: ytjvtmdWMR58kD
+      POSTGRES_APP_DB: vehicles
+      TZ: America/Denver
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    environment:
+      DB_USERNAME: goapp
+      DB_PASSWORD: ytjvtmdWMR58kD
+      DB_NAME: vehicles
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_TIMEZONE: America/Denver
+      PGTZ: America/Denver
+      HTTP_ADDRESS: :8080
+      LOG_LEVEL: debug
+    depends_on:
+      - postgres
