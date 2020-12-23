@@ -47,7 +47,7 @@ func main() {
 		log.Log.Err(err).Msg("failed to initialize database")
 		panic(err)
 	}
-	if err := db.GetDB().AutoMigrate(&resources.Vehicle{}); err != nil {
+	if err := db.GetDB().AutoMigrate(&resources.VehicleModel{}); err != nil {
 		log.Log.Err(err).Msg("database schema migration failed")
 		panic(err)
 	}
