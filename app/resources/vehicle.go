@@ -41,13 +41,13 @@ var allowedQueryParams = map[string]bool{
 }
 
 type Vehicle struct {
-	VIN           string    `json:"vin,omitempty"`
-	Make          string    `json:"make,omitempty"`
-	Name          string    `json:"name,omitempty"`
-	Year          uint16    `json:"year,omitempty"`
-	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty"`
-	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty"`
-	UpdatedAt     time.Time `db:"updated_at" json:"-"`
+	VIN           string    `json:"vin,omitempty" xml:"vin"`
+	Make          string    `json:"make,omitempty" xml:"make"`
+	Name          string    `json:"name,omitempty" xml:"name"`
+	Year          uint16    `json:"year,omitempty" xml:"year"`
+	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty" xml:"exterior_color"`
+	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty" xml:"interior_color"`
+	UpdatedAt     time.Time `db:"updated_at" json:"-" xml:"-"`
 }
 
 func (encoded *Vehicle) Validate() error {
@@ -76,6 +76,7 @@ func BindVehicleRequestHandlers(router *mux.Router) {
 	router.HandleFunc("/vehicles", ListHandler).Methods("GET")
 	router.HandleFunc("/vehicles/{vin}", DeleteHandler).Methods("DELETE")
 	router.HandleFunc("/vehicles/{vin}", GetHandler).Methods("GET")
+	router.HandleFunc("/vehicles/{vin}", UpdateHandler).Methods("PUT")
 	router.HandleFunc("/vehicles", CreateHandler).Methods("POST")
 }
 
@@ -95,7 +96,6 @@ func ListHandler(writer http.ResponseWriter, request *http.Request) {
 			svr.Error{Message: "Error listing vehicles"})
 		return
 	}
-	log.Log.Info().Interface("vehicles", vehicles).Msg("encoded vehicles")
 	svr.HttpRespond(writer, request, http.StatusOK, vehicles)
 }
 
@@ -127,7 +127,42 @@ func GetHandler(writer http.ResponseWriter, request *http.Request) {
 		svr.HttpRespond(writer, request, http.StatusNotFound, nil)
 		return
 	}
-	log.Log.Info().Interface("vehicle", vehicle).Msg("Got vehicle")
+	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
+}
+
+func UpdateHandler(writer http.ResponseWriter, request *http.Request) {
+	var vehicle Vehicle
+	vars := mux.Vars(request)
+	vin := vars["vin"]
+	// TODO: enforce max size
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		log.Log.Err(err).Msg("Error ready request body")
+		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
+		return
+	}
+	contentType := svr.GetRequestContentType(request)
+	if contentType == "" {
+		svr.HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
+		return
+	}
+	// TODO: better validation
+	err = svr.Unmarshal(contentType, body, &vehicle)
+	if err != nil {
+		log.Log.Err(err).Msg("Error unmarshalling request body")
+		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
+		return
+	}
+	vehicle.VIN = vin
+	if err = vehicle.Validate(); err != nil {
+		log.Log.Err(err).Msg("Invalid vehicle format")
+		svr.HttpRespond(writer, request, http.StatusBadRequest, svr.Error{Message: err.Error()})
+		return
+	}
+	if err = Update(&vehicle); err != nil {
+		svr.HttpRespond(writer, request, http.StatusBadRequest, svr.Error{Message: err.Error()})
+		return
+	}
 	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
 }
 
@@ -243,6 +278,19 @@ func Create(vehicle *Vehicle) error {
 	if err != nil {
 		//  duplicate key value violates unique constraint \"vehicles_vin_key\" (SQLSTATE 23505)
 		log.Log.Err(err).Msg("Database error creating vehicle")
+		return err
+	}
+	return nil
+}
+
+func Update(vehicle *Vehicle) error {
+	store := db.GetDB()
+	_, err := store.Exec(`UPDATE vehicles SET (make, name, year, exterior_color, 
+		interior_color, updated_at) = ($1, $2, $3, $4, $5, $6) WHERE vin = '$7'`,
+		vehicle.Make, vehicle.Name, vehicle.Year, vehicle.ExteriorColor,
+		vehicle.InteriorColor, time.Now(), vehicle.VIN)
+	if err != nil {
+		log.Log.Err(err).Msg("Database error updating vehicle")
 		return err
 	}
 	return nil

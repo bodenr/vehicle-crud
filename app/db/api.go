@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,11 @@ var (
 
 func init() {
 	lock = &sync.Mutex{}
+}
+
+type StoredResource interface {
+	Search(queryParams *url.Values) ([]interface{}, error)
+	List() ([]interface{}, error)
 }
 
 func isConnectionError(err error) bool {
