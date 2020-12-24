@@ -3,6 +3,7 @@ package log
 const (
 	Binary   = "binary"
 	Hostname = "hostname"
-	VIN      = "vin"
+	Query    = "query"
 	Signal   = "signal"
+	VIN      = "vin"
 )

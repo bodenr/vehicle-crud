@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -29,6 +30,14 @@ CREATE TABLE vehicles (
 
 func CreateSchema() {
 	db.GetDB().MustExec(schema)
+}
+
+var allowedQueryParams = map[string]bool{
+	"make":           true,
+	"name":           true,
+	"year":           true,
+	"exterior_color": true,
+	"interior_color": true,
 }
 
 type Vehicle struct {
@@ -71,7 +80,16 @@ func BindVehicleRequestHandlers(router *mux.Router) {
 }
 
 func ListHandler(writer http.ResponseWriter, request *http.Request) {
-	vehicles, err := List()
+	vehicles := []Vehicle{}
+	var err error
+
+	queryParams := request.URL.Query()
+	if len(queryParams) == 0 {
+		vehicles, err = List()
+	} else {
+		vehicles, err = Search(&queryParams)
+	}
+
 	if err != nil {
 		svr.HttpRespond(writer, request, http.StatusInternalServerError,
 			svr.Error{Message: "Error listing vehicles"})
@@ -152,6 +170,32 @@ func CreateHandler(writer http.ResponseWriter, request *http.Request) {
 	}
 
 	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
+}
+
+func Search(queryParams *url.Values) ([]Vehicle, error) {
+	vehicles := []Vehicle{}
+	statement := "SELECT * FROM vehicles WHERE"
+	var inStatements []string
+
+	for col, vals := range *queryParams {
+		_, exists := allowedQueryParams[col]
+		if !exists {
+			// TODO: this is a bad request not internal error
+			return nil, fmt.Errorf("Invalid query param: %s", col)
+		}
+		s := fmt.Sprintf("%s IN ('%s')", col, strings.Join(vals[:], ","))
+		inStatements = append(inStatements, s)
+	}
+	statement = fmt.Sprintf("%s %s", statement, strings.Join(inStatements[:], " AND "))
+	log.Log.Debug().Str(log.Query, statement).Msg("Search query")
+
+	store := db.GetDB()
+	err := store.Select(&vehicles, statement)
+	if err != nil {
+		log.Log.Err(err).Msg("Database error listing vehicles")
+		return vehicles, err
+	}
+	return vehicles, nil
 }
 
 func List() ([]Vehicle, error) {
