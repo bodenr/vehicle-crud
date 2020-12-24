@@ -7,11 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bodenr/vehicle-app/config"
-	"github.com/bodenr/vehicle-app/db"
-	"github.com/bodenr/vehicle-app/log"
-	"github.com/bodenr/vehicle-app/resources"
-	"github.com/bodenr/vehicle-app/svr"
+	"github.com/bodenr/vehicle-api/config"
+	"github.com/bodenr/vehicle-api/db"
+	"github.com/bodenr/vehicle-api/log"
+	"github.com/bodenr/vehicle-api/resources"
+	"github.com/bodenr/vehicle-api/svr"
 )
 
 func startRestApi(conf *config.HTTPConfig) <-chan bool {
@@ -47,10 +47,7 @@ func main() {
 		log.Log.Err(err).Msg("failed to initialize database")
 		panic(err)
 	}
-	if err := db.GetDB().AutoMigrate(&resources.VehicleModel{}); err != nil {
-		log.Log.Err(err).Msg("database schema migration failed")
-		panic(err)
-	}
+	resources.CreateSchema()
 	defer db.Close()
 
 	// init rest api server

@@ -6,15 +6,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bodenr/vehicle-app/config"
-	"github.com/bodenr/vehicle-app/log"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"github.com/bodenr/vehicle-api/config"
+	"github.com/bodenr/vehicle-api/log"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 )
 
 // singleton database instance
 var (
-	database *gorm.DB
+	database *sqlx.DB
 	lock     *sync.Mutex
 )
 
@@ -26,8 +26,8 @@ func isConnectionError(err error) bool {
 	return strings.Contains(err.Error(), "connection refused")
 }
 
-func connect(dsn string) (*gorm.DB, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+func connect(dsn string) (*sqlx.DB, error) {
+	db, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
 		log.Log.Err(err).Msg("error initializing database connection")
 		return nil, err
@@ -35,7 +35,7 @@ func connect(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-func connectRetry(dsn string, retries int, delay time.Duration) (*gorm.DB, error) {
+func connectRetry(dsn string, retries int, delay time.Duration) (*sqlx.DB, error) {
 	for retry := 0; retry < retries; retry++ {
 		db, err := connect(dsn)
 		if err == nil {
@@ -75,7 +75,7 @@ func Initialize(conf *config.DatabaseConfig) error {
 	return nil
 }
 
-func GetDB() *gorm.DB {
+func GetDB() *sqlx.DB {
 	if database == nil {
 		log.Log.Warn().Msg("database accessed before initialization")
 	}
@@ -90,12 +90,7 @@ func Close() error {
 		log.Log.Warn().Msg("database already closed")
 		return nil
 	}
-	db, err := database.DB()
-	if err != nil {
-		log.Log.Err(err).Msg("error getting database handle")
-		return err
-	}
-	if err = db.Close(); err != nil {
+	if err := database.Close(); err != nil {
 		log.Log.Err(err).Msg("error closing database")
 		return err
 	}

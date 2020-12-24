@@ -6,16 +6,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/bodenr/vehicle-app/config"
+	"github.com/bodenr/vehicle-api/config"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/hlog"
 
-	"github.com/bodenr/vehicle-app/log"
+	"github.com/bodenr/vehicle-api/log"
 )
 
 type Error struct {
-	Message string
+	Message string `json:"error_message,omitempty"`
 }
 
 type RestServer struct {

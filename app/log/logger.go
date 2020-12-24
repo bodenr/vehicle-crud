@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bodenr/vehicle-app/config"
+	"github.com/bodenr/vehicle-api/config"
 	"github.com/rs/zerolog"
 )
 

@@ -1,10 +1,11 @@
-module github.com/bodenr/vehicle-app
+module github.com/bodenr/vehicle-api
 
 go 1.14
 
 require (
 	github.com/gorilla/mux v1.8.0
+	github.com/jmoiron/sqlx v1.2.0
+	github.com/lib/pq v1.3.0
 	github.com/rs/zerolog v1.20.0
-	gorm.io/driver/postgres v1.0.5
-	gorm.io/gorm v1.20.8
+	google.golang.org/appengine v1.6.7 // indirect
 )

@@ -6,5 +6,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo
 
 FROM scratch
 WORKDIR /
-COPY --from=builder /go/src/app/vehicle-app .
-CMD ["/vehicle-app"]
+COPY --from=builder /go/src/app/vehicle-api .
+CMD ["/vehicle-api"]

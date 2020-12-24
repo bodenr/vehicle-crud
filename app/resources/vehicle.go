@@ -1,7 +1,7 @@
 package resources
 
 import (
-	"errors"
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -10,65 +10,38 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/bodenr/vehicle-app/db"
-	"github.com/bodenr/vehicle-app/log"
-	"github.com/bodenr/vehicle-app/svr"
-	"gorm.io/gorm"
+	"github.com/bodenr/vehicle-api/db"
+	"github.com/bodenr/vehicle-api/log"
+	"github.com/bodenr/vehicle-api/svr"
 )
 
-type VehicleModel struct {
-	gorm.Model
-	VIN           string `gorm:"primaryKey;unique;size:64"`
-	Make          string `gorm:"size:64;not null"`
-	Name          string `gorm:"size:64;not null"`
-	Year          uint16 `gorm:"not null"`
-	ExteriorColor string `gorm:"size:64;not null"`
-	InteriorColor string `gorm:"size:64;not null"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	DeletedAt     time.Time
+var schema = `
+CREATE TABLE vehicles (
+	vin VARCHAR(64) UNIQUE NOT NULL PRIMARY KEY,
+	make VARCHAR(64) NOT NULL,
+	name VARCHAR(64) NOT NULL,
+	year integer NOT NULL,
+	exterior_color VARCHAR(64) NOT NULL,
+	interior_color VARCHAR(64) NOT NULL,
+	updated_at TIMESTAMP NOT NULL
+);
+`
+
+func CreateSchema() {
+	db.GetDB().MustExec(schema)
 }
 
-func (model *VehicleModel) ToEncoding() VehicleEncoding {
-	return VehicleEncoding{
-		VIN:           model.VIN,
-		Make:          model.Make,
-		Name:          model.Name,
-		Year:          model.Year,
-		ExteriorColor: model.ExteriorColor,
-		InteriorColor: model.InteriorColor,
-	}
+type Vehicle struct {
+	VIN           string    `json:"vin,omitempty"`
+	Make          string    `json:"make,omitempty"`
+	Name          string    `json:"name,omitempty"`
+	Year          uint16    `json:"year,omitempty"`
+	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty"`
+	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty"`
+	UpdatedAt     time.Time `db:"updated_at" json:"-"`
 }
 
-func EncodeVehicles(vehicles []VehicleModel) []VehicleEncoding {
-	encoded := make([]VehicleEncoding, 0)
-	for _, v := range vehicles {
-		encoded = append(encoded, v.ToEncoding())
-	}
-	return encoded
-}
-
-type VehicleEncoding struct {
-	VIN           string `json:"vin,omitempty"`
-	Make          string `json:"make,omitempty"`
-	Name          string `json:"name,omitempty"`
-	Year          uint16 `json:"year,omitempty"`
-	ExteriorColor string `json:"exterior_color,omitempty"`
-	InteriorColor string `json:"interior_color,omitempty"`
-}
-
-func (encoded *VehicleEncoding) ToModel() *VehicleModel {
-	return &VehicleModel{
-		VIN:           encoded.VIN,
-		Make:          encoded.Make,
-		Name:          encoded.Name,
-		Year:          encoded.Year,
-		ExteriorColor: encoded.ExteriorColor,
-		InteriorColor: encoded.InteriorColor,
-	}
-}
-
-func (encoded *VehicleEncoding) Validate() error {
+func (encoded *Vehicle) Validate() error {
 	if encoded.VIN == "" {
 		return fmt.Errorf("A vin is required")
 	}
@@ -104,9 +77,8 @@ func ListHandler(writer http.ResponseWriter, request *http.Request) {
 			svr.Error{Message: "Error listing vehicles"})
 		return
 	}
-	encoded := EncodeVehicles(vehicles)
-	log.Log.Info().Interface("vehicles", encoded).Msg("encoded vehicles")
-	svr.HttpRespond(writer, request, http.StatusOK, encoded)
+	log.Log.Info().Interface("vehicles", vehicles).Msg("encoded vehicles")
+	svr.HttpRespond(writer, request, http.StatusOK, vehicles)
 }
 
 func DeleteHandler(writer http.ResponseWriter, request *http.Request) {
@@ -138,11 +110,11 @@ func GetHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	log.Log.Info().Interface("vehicle", vehicle).Msg("Got vehicle")
-	svr.HttpRespond(writer, request, http.StatusOK, vehicle.ToEncoding())
+	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
 }
 
 func CreateHandler(writer http.ResponseWriter, request *http.Request) {
-	var vehicle VehicleEncoding
+	var vehicle Vehicle
 	// TODO: enforce max size
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
@@ -155,7 +127,7 @@ func CreateHandler(writer http.ResponseWriter, request *http.Request) {
 		svr.HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
 		return
 	}
-	// TODO: validate and sanitize body
+	// TODO: better validation
 	err = svr.Unmarshal(contentType, body, &vehicle)
 	if err != nil {
 		log.Log.Err(err).Msg("Error unmarshalling request body")
@@ -168,7 +140,7 @@ func CreateHandler(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	if err = Create(vehicle.ToModel()); err != nil {
+	if err = Create(&vehicle); err != nil {
 		// TODO: better handling of existing vin
 		if strings.Contains(err.Error(), "duplicate key") {
 			svr.HttpRespond(writer, request, http.StatusBadRequest,
@@ -182,51 +154,52 @@ func CreateHandler(writer http.ResponseWriter, request *http.Request) {
 	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
 }
 
-func List() ([]VehicleModel, error) {
-	var vehicles []VehicleModel
+func List() ([]Vehicle, error) {
+	vehicles := []Vehicle{}
 	store := db.GetDB()
-	result := store.Find(&vehicles)
-	if err := result.Error; err != nil {
+	err := store.Select(&vehicles, "SELECT * FROM vehicles")
+	if err != nil {
 		log.Log.Err(err).Msg("Database error listing vehicles")
 		return vehicles, err
 	}
-	log.Log.Info().Int64("rows", result.RowsAffected).Interface("models", vehicles).Msg("Listing vehicles")
 	return vehicles, nil
 }
 
-func Get(vin string) (*VehicleModel, error) {
-	var vehicle VehicleModel
+func Get(vin string) (*Vehicle, error) {
+	vehicle := Vehicle{}
 	store := db.GetDB()
-	result := store.Where("vin = ?", vin).First(&vehicle)
-	if err := result.Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := store.Get(&vehicle, "SELECT * FROM vehicles WHERE vin=$1", vin)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		log.Log.Err(err).Str(log.VIN, vin).Msg("Database error getting vehicle")
 		return nil, err
 	}
-	log.Log.Info().Str("vin", vin).Interface("model", vehicle).Msg("Get vehicle")
 	return &vehicle, nil
 }
 
 func Delete(vin string) (bool, error) {
 	store := db.GetDB()
-	result := store.Delete(&VehicleModel{VIN: vin})
-	if err := result.Error; err != nil {
+	result, err := store.Exec("DELETE FROM vehicles WHERE vin=$1", vin)
+	if err != nil {
 		log.Log.Err(err).Str(log.VIN, vin).Msg("Database error deleting vehicle")
 		return false, err
 	}
-	return result.RowsAffected > 0, nil
+	rows, _ := result.RowsAffected()
+	return rows > 0, nil
 }
 
-func Create(vehicle *VehicleModel) error {
+func Create(vehicle *Vehicle) error {
 	store := db.GetDB()
-	result := store.Create(vehicle)
-	if err := result.Error; err != nil {
+	_, err := store.Exec(`INSERT INTO vehicles (vin, make, name, year, exterior_color, 
+		interior_color, updated_at) VALUES($1, $2, $3, $4, $5, $6, $7)`,
+		vehicle.VIN, vehicle.Make, vehicle.Name, vehicle.Year, vehicle.ExteriorColor,
+		vehicle.InteriorColor, time.Now())
+	if err != nil {
 		//  duplicate key value violates unique constraint \"vehicles_vin_key\" (SQLSTATE 23505)
 		log.Log.Err(err).Msg("Database error creating vehicle")
 		return err
 	}
-	log.Log.Debug().Int64("rows", result.RowsAffected).Uint("row_id", vehicle.ID).Interface("vehicle", vehicle).Msg("Created vehicle")
 	return nil
 }
