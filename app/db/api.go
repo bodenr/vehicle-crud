@@ -2,7 +2,6 @@ package db
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -23,12 +22,8 @@ func init() {
 	lock = &sync.Mutex{}
 }
 
-type StoredResource interface {
-	Search(queryParams *url.Values) ([]interface{}, error)
-	List() ([]interface{}, error)
-}
-
 func isConnectionError(err error) bool {
+	// TODO: find a way to not check error string
 	return strings.Contains(err.Error(), "connection refused")
 }
 

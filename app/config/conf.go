@@ -29,6 +29,7 @@ func (conf *HTTPConfig) Load() {
 }
 
 func (conf *DatabaseConfig) Load() {
+	// env vars take precedence over existing conf setting
 	conf.Host = GetEnv("DB_HOST", conf.Host)
 	conf.Username = GetEnv("DB_USERNAME", conf.Username)
 	conf.Password = GetEnv("DB_PASSWORD", conf.Password)

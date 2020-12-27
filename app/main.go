@@ -19,7 +19,8 @@ func startRestApi(conf *config.HTTPConfig) <-chan bool {
 	sigStop := make(chan os.Signal)
 	signal.Notify(sigStop, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
 
-	server := svr.NewRestServer(conf, resources.BindVehicleRequestHandlers)
+	vehicle := resources.Vehicle{}
+	server := svr.NewRestServer(conf, vehicle)
 	go server.WaitForShutdown(sigStop, serverStop)
 
 	log.Log.Info().Msg("starting http server on port " + server.Addr)

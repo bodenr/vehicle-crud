@@ -3,7 +3,6 @@ package resources
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,7 +19,7 @@ var schema = `
 CREATE TABLE vehicles (
 	vin VARCHAR(64) UNIQUE NOT NULL PRIMARY KEY,
 	make VARCHAR(64) NOT NULL,
-	name VARCHAR(64) NOT NULL,
+	model VARCHAR(64) NOT NULL,
 	year integer NOT NULL,
 	exterior_color VARCHAR(64) NOT NULL,
 	interior_color VARCHAR(64) NOT NULL,
@@ -34,7 +33,7 @@ func CreateSchema() {
 
 var allowedQueryParams = map[string]bool{
 	"make":           true,
-	"name":           true,
+	"model":          true,
 	"year":           true,
 	"exterior_color": true,
 	"interior_color": true,
@@ -43,22 +42,22 @@ var allowedQueryParams = map[string]bool{
 type Vehicle struct {
 	VIN           string    `json:"vin,omitempty" xml:"vin"`
 	Make          string    `json:"make,omitempty" xml:"make"`
-	Name          string    `json:"name,omitempty" xml:"name"`
+	Model         string    `json:"model,omitempty" xml:"model"`
 	Year          uint16    `json:"year,omitempty" xml:"year"`
 	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty" xml:"exterior_color"`
 	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty" xml:"interior_color"`
 	UpdatedAt     time.Time `db:"updated_at" json:"-" xml:"-"`
 }
 
-func (encoded *Vehicle) Validate() error {
-	if encoded.VIN == "" {
+func (encoded Vehicle) Validate(method string) error {
+	if encoded.VIN == "" && method != http.MethodPut {
 		return fmt.Errorf("A vin is required")
 	}
 	if encoded.Make == "" {
 		return fmt.Errorf("A make is required")
 	}
-	if encoded.Name == "" {
-		return fmt.Errorf("A name is required")
+	if encoded.Model == "" {
+		return fmt.Errorf("A model is required")
 	}
 	if encoded.Year == 0 {
 		return fmt.Errorf("A year is required")
@@ -72,151 +71,40 @@ func (encoded *Vehicle) Validate() error {
 	return nil
 }
 
-func BindVehicleRequestHandlers(router *mux.Router) {
-	router.HandleFunc("/vehicles", ListHandler).Methods("GET")
-	router.HandleFunc("/vehicles/{vin}", DeleteHandler).Methods("DELETE")
-	router.HandleFunc("/vehicles/{vin}", GetHandler).Methods("GET")
-	router.HandleFunc("/vehicles/{vin}", UpdateHandler).Methods("PUT")
-	router.HandleFunc("/vehicles", CreateHandler).Methods("POST")
+func vehiclesToStoredResource(vehicles []Vehicle) []svr.StoredResource {
+	resources := make([]svr.StoredResource, len(vehicles))
+	for i, v := range vehicles {
+		resources[i] = svr.StoredResource(v)
+	}
+	return resources
 }
 
-func ListHandler(writer http.ResponseWriter, request *http.Request) {
-	vehicles := []Vehicle{}
-	var err error
-
-	queryParams := request.URL.Query()
-	if len(queryParams) == 0 {
-		vehicles, err = List()
-	} else {
-		vehicles, err = Search(&queryParams)
-	}
-
-	if err != nil {
-		svr.HttpRespond(writer, request, http.StatusInternalServerError,
-			svr.Error{Message: "Error listing vehicles"})
-		return
-	}
-	svr.HttpRespond(writer, request, http.StatusOK, vehicles)
+func (vehicle Vehicle) BindRoutes(router *mux.Router, handler svr.RestfulHandler) {
+	router.HandleFunc("/vehicles", handler.List).Methods("GET")
+	router.HandleFunc("/vehicles/{vin}", handler.Delete).Methods("DELETE")
+	router.HandleFunc("/vehicles/{vin}", handler.Get).Methods("GET")
+	router.HandleFunc("/vehicles/{vin}", handler.Update).Methods("PUT")
+	router.HandleFunc("/vehicles", handler.Create).Methods("POST")
 }
 
-func DeleteHandler(writer http.ResponseWriter, request *http.Request) {
-	vars := mux.Vars(request)
-	vin := vars["vin"]
-	deleted, err := Delete(vin)
-	if err != nil {
-		svr.HttpRespond(writer, request, http.StatusInternalServerError, nil)
-		return
-	}
-	if deleted != true {
-		svr.HttpRespond(writer, request, http.StatusNotFound,
-			svr.Error{Message: fmt.Sprintf("Vehicle with VIN %s doesn't exist", vin)})
-		return
-	}
-	svr.HttpRespond(writer, request, http.StatusNoContent, nil)
+func (vehicle Vehicle) Unmarshal(contentType string, resource []byte) (svr.StoredResource, error) {
+	v := Vehicle{}
+	err := svr.Unmarshal(contentType, resource, &v)
+	return v, err
 }
 
-func GetHandler(writer http.ResponseWriter, request *http.Request) {
-	vars := mux.Vars(request)
-	vin := vars["vin"]
-	vehicle, err := Get(vin)
-	if err != nil {
-		svr.HttpRespond(writer, request, http.StatusInternalServerError, nil)
-		return
-	}
-	if vehicle == nil {
-		svr.HttpRespond(writer, request, http.StatusNotFound, nil)
-		return
-	}
-	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
-}
-
-func UpdateHandler(writer http.ResponseWriter, request *http.Request) {
-	var vehicle Vehicle
-	vars := mux.Vars(request)
-	vin := vars["vin"]
-	// TODO: enforce max size
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		log.Log.Err(err).Msg("Error ready request body")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
-		return
-	}
-	contentType := svr.GetRequestContentType(request)
-	if contentType == "" {
-		svr.HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
-		return
-	}
-	// TODO: better validation
-	err = svr.Unmarshal(contentType, body, &vehicle)
-	if err != nil {
-		log.Log.Err(err).Msg("Error unmarshalling request body")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
-		return
-	}
-	vehicle.VIN = vin
-	if err = vehicle.Validate(); err != nil {
-		log.Log.Err(err).Msg("Invalid vehicle format")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, svr.Error{Message: err.Error()})
-		return
-	}
-	if err = Update(&vehicle); err != nil {
-		svr.HttpRespond(writer, request, http.StatusBadRequest, svr.Error{Message: err.Error()})
-		return
-	}
-	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
-}
-
-func CreateHandler(writer http.ResponseWriter, request *http.Request) {
-	var vehicle Vehicle
-	// TODO: enforce max size
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		log.Log.Err(err).Msg("Error ready request body")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
-		return
-	}
-	contentType := svr.GetRequestContentType(request)
-	if contentType == "" {
-		svr.HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
-		return
-	}
-	// TODO: better validation
-	err = svr.Unmarshal(contentType, body, &vehicle)
-	if err != nil {
-		log.Log.Err(err).Msg("Error unmarshalling request body")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, nil)
-		return
-	}
-	if err = vehicle.Validate(); err != nil {
-		log.Log.Err(err).Msg("Invalid vehicle format")
-		svr.HttpRespond(writer, request, http.StatusBadRequest, svr.Error{Message: err.Error()})
-		return
-	}
-
-	if err = Create(&vehicle); err != nil {
-		// TODO: better handling of existing vin
-		if strings.Contains(err.Error(), "duplicate key") {
-			svr.HttpRespond(writer, request, http.StatusBadRequest,
-				svr.Error{Message: "Vehicle with that vin already exists"})
-			return
-		}
-		svr.HttpRespond(writer, request, http.StatusInternalServerError, nil)
-		return
-	}
-
-	svr.HttpRespond(writer, request, http.StatusOK, vehicle)
-}
-
-func Search(queryParams *url.Values) ([]Vehicle, error) {
-	vehicles := []Vehicle{}
+func (vehicle Vehicle) Search(queryParams *url.Values) ([]svr.StoredResource, *svr.StoreError) {
+	vehicles := make([]Vehicle, 0)
 	statement := "SELECT * FROM vehicles WHERE"
 	var inStatements []string
 
 	for col, vals := range *queryParams {
 		_, exists := allowedQueryParams[col]
 		if !exists {
-			// TODO: this is a bad request not internal error
-			return nil, fmt.Errorf("Invalid query param: %s", col)
+			return vehiclesToStoredResource(vehicles), &svr.StoreError{
+				Error:      fmt.Errorf("Invalid query param: %s", col),
+				StatusCode: http.StatusBadRequest,
+			}
 		}
 		s := fmt.Sprintf("%s IN ('%s')", col, strings.Join(vals[:], ","))
 		inStatements = append(inStatements, s)
@@ -228,70 +116,115 @@ func Search(queryParams *url.Values) ([]Vehicle, error) {
 	err := store.Select(&vehicles, statement)
 	if err != nil {
 		log.Log.Err(err).Msg("Database error listing vehicles")
-		return vehicles, err
+		return vehiclesToStoredResource(vehicles), &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
 	}
-	return vehicles, nil
+	return vehiclesToStoredResource(vehicles), nil
 }
 
-func List() ([]Vehicle, error) {
-	vehicles := []Vehicle{}
+func (vehicle Vehicle) List() ([]svr.StoredResource, *svr.StoreError) {
+	vehicles := make([]Vehicle, 0)
 	store := db.GetDB()
 	err := store.Select(&vehicles, "SELECT * FROM vehicles")
 	if err != nil {
 		log.Log.Err(err).Msg("Database error listing vehicles")
-		return vehicles, err
+		return vehiclesToStoredResource(vehicles), &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
 	}
-	return vehicles, nil
+	return vehiclesToStoredResource(vehicles), nil
 }
 
-func Get(vin string) (*Vehicle, error) {
-	vehicle := Vehicle{}
+func (vehicle Vehicle) Get(requestVars svr.RequestVars) (svr.StoredResource, *svr.StoreError) {
+	v := Vehicle{}
+	vin := requestVars["vin"]
 	store := db.GetDB()
-	err := store.Get(&vehicle, "SELECT * FROM vehicles WHERE vin=$1", vin)
+	err := store.Get(&v, "SELECT * FROM vehicles WHERE vin=$1", vin)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return v, &svr.StoreError{
+				Error:      err,
+				StatusCode: http.StatusNotFound,
+			}
 		}
 		log.Log.Err(err).Str(log.VIN, vin).Msg("Database error getting vehicle")
-		return nil, err
+		return v, &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
 	}
-	return &vehicle, nil
+	return v, nil
 }
 
-func Delete(vin string) (bool, error) {
+func (vehicle Vehicle) Delete(requestVars svr.RequestVars) *svr.StoreError {
+	vin := requestVars["vin"]
 	store := db.GetDB()
 	result, err := store.Exec("DELETE FROM vehicles WHERE vin=$1", vin)
 	if err != nil {
 		log.Log.Err(err).Str(log.VIN, vin).Msg("Database error deleting vehicle")
-		return false, err
+		return &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
 	}
-	rows, _ := result.RowsAffected()
-	return rows > 0, nil
-}
-
-func Create(vehicle *Vehicle) error {
-	store := db.GetDB()
-	_, err := store.Exec(`INSERT INTO vehicles (vin, make, name, year, exterior_color, 
-		interior_color, updated_at) VALUES($1, $2, $3, $4, $5, $6, $7)`,
-		vehicle.VIN, vehicle.Make, vehicle.Name, vehicle.Year, vehicle.ExteriorColor,
-		vehicle.InteriorColor, time.Now())
+	affected, err := result.RowsAffected()
 	if err != nil {
-		//  duplicate key value violates unique constraint \"vehicles_vin_key\" (SQLSTATE 23505)
-		log.Log.Err(err).Msg("Database error creating vehicle")
-		return err
+		log.Log.Err(err).Msg("Error deleting vehicle")
+		return &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
+	}
+	if affected == 0 {
+		return &svr.StoreError{
+			Error:      fmt.Errorf("Vehicle with VIN %s doesn't exist", vin),
+			StatusCode: http.StatusNotFound,
+		}
 	}
 	return nil
 }
 
-func Update(vehicle *Vehicle) error {
+func (vehicle Vehicle) Create() *svr.StoreError {
 	store := db.GetDB()
-	_, err := store.Exec(`UPDATE vehicles SET (make, name, year, exterior_color, 
-		interior_color, updated_at) = ($1, $2, $3, $4, $5, $6) WHERE vin = '$7'`,
-		vehicle.Make, vehicle.Name, vehicle.Year, vehicle.ExteriorColor,
-		vehicle.InteriorColor, time.Now(), vehicle.VIN)
+	_, err := store.Exec(`INSERT INTO vehicles (vin, make, model, year, exterior_color, 
+		interior_color, updated_at) VALUES($1, $2, $3, $4, $5, $6, $7)`,
+		vehicle.VIN, vehicle.Make, vehicle.Model, vehicle.Year, vehicle.ExteriorColor,
+		vehicle.InteriorColor, time.Now())
+	if err != nil {
+		log.Log.Err(err).Msg("Database error creating vehicle")
+
+		// TODO: don't check error string
+		if strings.Contains(err.Error(), "duplicate key value") {
+			return &svr.StoreError{
+				Error:      err,
+				StatusCode: http.StatusBadRequest,
+			}
+		}
+
+		return &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
+	}
+	return nil
+}
+
+func (vehicle Vehicle) Update(requestVars svr.RequestVars) *svr.StoreError {
+	vin := requestVars["vin"]
+	store := db.GetDB()
+
+	_, err := store.Exec("UPDATE vehicles SET make=$1, model=$2, year=$3, exterior_color=$4, interior_color=$5, updated_at=$6 WHERE vin=$7",
+		vehicle.Make, vehicle.Model, vehicle.Year, vehicle.ExteriorColor, vehicle.InteriorColor, time.Now(), vin)
 	if err != nil {
 		log.Log.Err(err).Msg("Database error updating vehicle")
-		return err
+		return &svr.StoreError{
+			Error:      err,
+			StatusCode: http.StatusInternalServerError,
+		}
 	}
+	vehicle.VIN = vin
 	return nil
 }

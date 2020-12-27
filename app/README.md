@@ -10,4 +10,18 @@ This repo is a WIP; not intended for consumption!
 - GET         /v1/api/vehicles/{vin} <-- get specific vehicle by VIN
 - DELETE      /v1/api/vehicles/{vin} <-- delete vehicle by VIN
 - PUT         /v1/api/vehicles/{vin} <-- update a vehicle
-- PATCH       /v1/api/vehicles/{vin} <-- partial update
+
+## Vehicle format
+
+A sample vehicle is shown below in `JSON` format; `vin` is the primary key and must be unique.
+
+```json
+{
+    "vin": "abc124",
+    "make": "Honda",
+    "year": 2019,
+    "model": "Accord",
+    "exterior_color": "Red",
+    "interior_color": "Tan"
+}
+```

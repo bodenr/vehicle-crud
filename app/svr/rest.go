@@ -2,8 +2,11 @@ package svr
 
 import (
 	"context"
+	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bodenr/vehicle-api/config"
@@ -18,17 +21,163 @@ type Error struct {
 	Message string `json:"error_message,omitempty"`
 }
 
+type StoreError struct {
+	Error      error
+	StatusCode int
+}
+
 type RestServer struct {
 	*http.Server
 }
 
-type BindRequestHandler func(router *mux.Router)
+type RequestVars map[string]string
 
-func NewRestServer(conf *config.HTTPConfig, bindFuncs ...BindRequestHandler) *RestServer {
+type StoredResource interface {
+	Search(queryParams *url.Values) ([]StoredResource, *StoreError)
+	List() ([]StoredResource, *StoreError)
+	Get(requestVars RequestVars) (StoredResource, *StoreError)
+	Delete(requestVars RequestVars) *StoreError
+	Create() *StoreError
+	Update(requestVars RequestVars) *StoreError
+	Unmarshal(contentType string, resource []byte) (StoredResource, error)
+	Validate(method string) error
+	BindRoutes(router *mux.Router, handler RestfulHandler)
+}
+
+type RestfulResource struct {
+	Resource StoredResource
+}
+
+type RestfulHandler interface {
+	Create(writer http.ResponseWriter, request *http.Request)
+	List(writer http.ResponseWriter, request *http.Request)
+	Delete(writer http.ResponseWriter, request *http.Request)
+	Get(writer http.ResponseWriter, request *http.Request)
+	Update(writer http.ResponseWriter, request *http.Request)
+}
+
+func NewRestfulResource(storedResource StoredResource, router *mux.Router) RestfulResource {
+	handler := RestfulResource{
+		Resource: storedResource,
+	}
+	storedResource.BindRoutes(router, handler)
+	return handler
+}
+
+func (handler RestfulResource) Create(writer http.ResponseWriter, request *http.Request) {
+	// TODO: enforce max size
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		log.Log.Err(err).Msg("Error ready request body")
+		HttpRespond(writer, request, http.StatusBadRequest, nil)
+		return
+	}
+	contentType := GetRequestContentType(request)
+	if contentType == "" {
+		HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
+		return
+	}
+	// TODO: better validation/sanitization
+	resource, err := handler.Resource.Unmarshal(contentType, body)
+	if err != nil {
+		log.Log.Err(err).Msg("Invalid resource request body")
+		HttpRespond(writer, request, http.StatusBadRequest, Error{Message: err.Error()})
+		return
+	}
+	if err = resource.Validate(request.Method); err != nil {
+		log.Log.Err(err).Msg("Invalid resource format")
+		HttpRespond(writer, request, http.StatusBadRequest, Error{Message: err.Error()})
+		return
+	}
+
+	if err := resource.Create(); err != nil {
+		// TODO: ideally don't use error string parsing
+		if strings.Contains(err.Error.Error(), "duplicate key") {
+			HttpRespond(writer, request, http.StatusBadRequest,
+				Error{Message: "Resource already exists"})
+			return
+		}
+		HttpRespond(writer, request, http.StatusInternalServerError, nil)
+		return
+	}
+
+	HttpRespond(writer, request, http.StatusOK, resource)
+}
+
+func (handler RestfulResource) List(writer http.ResponseWriter, request *http.Request) {
+	var err *StoreError
+	var resources []StoredResource
+
+	queryParams := request.URL.Query()
+	if len(queryParams) == 0 {
+		resources, err = handler.Resource.List()
+	} else {
+		resources, err = handler.Resource.Search(&queryParams)
+	}
+
+	if err != nil {
+		HttpRespond(writer, request, http.StatusInternalServerError,
+			Error{Message: "Error listing resources"})
+		return
+	}
+	HttpRespond(writer, request, http.StatusOK, resources)
+}
+
+func (handler RestfulResource) Delete(writer http.ResponseWriter, request *http.Request) {
+	err := handler.Resource.Delete(mux.Vars(request))
+	if err != nil {
+		HttpRespond(writer, request, err.StatusCode, nil)
+		return
+	}
+	HttpRespond(writer, request, http.StatusNoContent, nil)
+}
+
+func (handler RestfulResource) Get(writer http.ResponseWriter, request *http.Request) {
+	resource, err := handler.Resource.Get(mux.Vars(request))
+	if err != nil {
+		HttpRespond(writer, request, err.StatusCode, nil)
+		return
+	}
+	HttpRespond(writer, request, http.StatusOK, resource)
+}
+
+func (handler RestfulResource) Update(writer http.ResponseWriter, request *http.Request) {
+	// TODO: enforce max size
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		log.Log.Err(err).Msg("Error ready request body")
+		HttpRespond(writer, request, http.StatusBadRequest, nil)
+		return
+	}
+	contentType := GetRequestContentType(request)
+	if contentType == "" {
+		HttpRespond(writer, request, http.StatusUnsupportedMediaType, nil)
+		return
+	}
+	// TODO: better validation
+	resource, err := handler.Resource.Unmarshal(contentType, body)
+	if err != nil {
+		log.Log.Err(err).Msg("Error unmarshalling request body")
+		HttpRespond(writer, request, http.StatusBadRequest, nil)
+		return
+	}
+	if err = resource.Validate(request.Method); err != nil {
+		log.Log.Err(err).Msg("Invalid body format")
+		HttpRespond(writer, request, http.StatusBadRequest, Error{Message: err.Error()})
+		return
+	}
+	if err := resource.Update(mux.Vars(request)); err != nil {
+		HttpRespond(writer, request, err.StatusCode, Error{Message: err.Error.Error()})
+		return
+	}
+	HttpRespond(writer, request, http.StatusOK, resource)
+}
+
+func NewRestServer(conf *config.HTTPConfig, storedResources ...StoredResource) *RestServer {
 
 	router := mux.NewRouter()
 
-	subrouter := router.PathPrefix("/api/v1").Subrouter()
+	subrouter := router.PathPrefix("/api").Subrouter()
 
 	subrouter.Use(hlog.NewHandler(log.Log))
 
@@ -48,8 +197,8 @@ func NewRestServer(conf *config.HTTPConfig, bindFuncs ...BindRequestHandler) *Re
 	subrouter.Use(hlog.RefererHandler("referer"))
 	subrouter.Use(hlog.RequestIDHandler("req_id", "Request-Id"))
 
-	for _, bindFunc := range bindFuncs {
-		bindFunc(subrouter)
+	for _, resource := range storedResources {
+		NewRestfulResource(resource, subrouter)
 	}
 
 	return &RestServer{
