@@ -23,6 +23,14 @@ type HTTPConfig struct {
 	Address string
 }
 
+type GrpcConfig struct {
+	Address string
+}
+
+func (conf *GrpcConfig) Load() {
+	conf.Address = GetEnv("GRPC_ADDRESS", conf.Address)
+}
+
 func (conf *HTTPConfig) Load() {
 	conf.Address = GetEnv("HTTP_ADDRESS", conf.Address)
 	// TODO: expose timeouts in conf

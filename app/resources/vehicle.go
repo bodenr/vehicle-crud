@@ -15,6 +15,16 @@ import (
 	"github.com/bodenr/vehicle-api/svr"
 )
 
+type Vehicle struct {
+	VIN           string    `json:"vin,omitempty" xml:"vin"`
+	Make          string    `json:"make,omitempty" xml:"make"`
+	Model         string    `json:"model,omitempty" xml:"model"`
+	Year          uint16    `json:"year,omitempty" xml:"year"`
+	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty" xml:"exterior_color"`
+	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty" xml:"interior_color"`
+	UpdatedAt     time.Time `db:"updated_at" json:"-" xml:"-"`
+}
+
 var schema = `
 CREATE TABLE vehicles (
 	vin VARCHAR(64) UNIQUE NOT NULL PRIMARY KEY,
@@ -37,16 +47,6 @@ var allowedQueryParams = map[string]bool{
 	"year":           true,
 	"exterior_color": true,
 	"interior_color": true,
-}
-
-type Vehicle struct {
-	VIN           string    `json:"vin,omitempty" xml:"vin"`
-	Make          string    `json:"make,omitempty" xml:"make"`
-	Model         string    `json:"model,omitempty" xml:"model"`
-	Year          uint16    `json:"year,omitempty" xml:"year"`
-	ExteriorColor string    `db:"exterior_color" json:"exterior_color,omitempty" xml:"exterior_color"`
-	InteriorColor string    `db:"interior_color" json:"interior_color,omitempty" xml:"interior_color"`
-	UpdatedAt     time.Time `db:"updated_at" json:"-" xml:"-"`
 }
 
 func (encoded Vehicle) Validate(method string) error {

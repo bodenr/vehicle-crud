@@ -27,5 +27,6 @@ services:
       PGTZ: America/Denver
       HTTP_ADDRESS: :8080
       LOG_LEVEL: debug
+      GRPC_ADDRESS: :10010
     depends_on:
       - postgres

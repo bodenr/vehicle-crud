@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,14 +20,39 @@ func startRestApi(conf *config.HTTPConfig) <-chan bool {
 
 	vehicle := resources.Vehicle{}
 	server := svr.NewRestServer(conf, vehicle)
-	go server.WaitForShutdown(sigStop, serverStop)
 
-	log.Log.Info().Msg("starting http server on port " + server.Addr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Log.Err(err).Msg("failed to start http server")
+	go func() {
+		if err := server.Run(); err != nil {
+			panic(err)
+		}
+	}()
+
+	go server.WaitForShutdown(sigStop, serverStop)
+	return serverStop
+}
+
+func startGrpcServer(conf *config.GrpcConfig) <-chan bool {
+	serverStop := make(chan bool, 1)
+	sigStop := make(chan os.Signal)
+	signal.Notify(sigStop, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
+
+	handler := svr.GrpcHandler{
+		Resource: resources.Vehicle{},
+	}
+	server, err := svr.NewGrpcServer(conf, &handler)
+	if err != nil {
+		log.Log.Err(err).Msg("failed to create grpc server")
 		panic(err)
 	}
 
+	go func() {
+		if err := server.Run(); err != nil {
+			log.Log.Err(err).Msg("failed to start grpc server")
+			panic(err)
+		}
+	}()
+
+	go server.WaitForShutdown(sigStop, serverStop)
 	return serverStop
 }
 
@@ -58,8 +82,16 @@ func main() {
 	httpConfig.Load()
 	httpStopped := startRestApi(&httpConfig)
 
+	// init grpc server
+	grpcConf := config.GrpcConfig{
+		Address: ":10010",
+	}
+	grpcConf.Load()
+	grpcStopped := startGrpcServer(&grpcConf)
+
 	// wait for server stop
 	<-httpStopped
+	<-grpcStopped
 
 	log.Log.Info().Msg("stopping service")
 }

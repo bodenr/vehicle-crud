@@ -1,0 +1,34 @@
+// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ./vehicle.proto
+syntax = "proto3";
+
+package vehicle;
+
+option go_package = "github.com/bodenr/vehicle-api/svr/proto";
+
+import "google/protobuf/empty.proto";
+
+service VehicleStore {
+    rpc GetVehicle(VehicleVIN) returns (Vehicle) {}
+    rpc CreateVehicle(Vehicle) returns (Vehicle) {}
+    rpc UpdateVehicle(Vehicle) returns (Vehicle) {}
+    rpc DeleteVehicle(VehicleVIN) returns (google.protobuf.Empty) {}
+    rpc ListVehicles(google.protobuf.Empty) returns (stream Vehicle) {}
+    rpc SearchVehicles(VehicleQuery) returns (stream Vehicle) {}
+}
+
+message VehicleVIN {
+    string vin = 1;
+}
+
+message Vehicle {
+    string vin = 1;
+    string make = 2;
+    string model = 3;
+    int32 year = 4;
+    string exterior_color = 5;
+    string interior_color = 6;
+}
+
+message VehicleQuery {
+    string query = 1; // standard HTTP URL query format
+}

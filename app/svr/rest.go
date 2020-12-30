@@ -212,6 +212,15 @@ func NewRestServer(conf *config.HTTPConfig, storedResources ...StoredResource) *
 	}
 }
 
+func (server *RestServer) Run() error {
+	log.Log.Info().Msg("starting http server on port " + server.Addr)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Log.Err(err).Msg("failed to start http server")
+		return err
+	}
+	return nil
+}
+
 func (server *RestServer) WaitForShutdown(terminate <-chan os.Signal, done chan bool) {
 	termSig := <-terminate
 
