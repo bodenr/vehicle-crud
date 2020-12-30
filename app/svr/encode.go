@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net/http"
 )
 
 type Encoding interface {
@@ -54,4 +55,29 @@ func Marshal(encoding string, dataType interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("No such encoding: %s", encoding)
 	}
 	return enc.Marshal(dataType)
+}
+
+func GetRequestContentType(request *http.Request) string {
+	for _, contentType := range request.Header.Values("Content-Type") {
+		if SupportsEncoding(contentType) {
+			return contentType
+		}
+	}
+	return ""
+}
+
+func GetResponseContentType(request *http.Request) string {
+	// TODO: support weighted encodings, */*, etc..
+	for _, acceptType := range request.Header.Values("Accept") {
+		if SupportsEncoding(acceptType) {
+			return acceptType
+		}
+	}
+	// no Accept specified; if Content-Type was given use it
+	contentType := GetRequestContentType(request)
+	if contentType != "" {
+		return contentType
+	}
+	// default to JSON
+	return "application/json"
 }

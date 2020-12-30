@@ -18,8 +18,7 @@ func startRestApi(conf *config.HTTPConfig) <-chan bool {
 	sigStop := make(chan os.Signal)
 	signal.Notify(sigStop, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
 
-	vehicle := resources.Vehicle{}
-	server := svr.NewRestServer(conf, vehicle)
+	server := svr.NewRestServer(conf, resources.StoredVehicle{})
 
 	go func() {
 		if err := server.Run(); err != nil {
@@ -37,7 +36,7 @@ func startGrpcServer(conf *config.GrpcConfig) <-chan bool {
 	signal.Notify(sigStop, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGINT)
 
 	handler := svr.GrpcHandler{
-		Resource: resources.Vehicle{},
+		Resource: resources.StoredVehicle{},
 	}
 	server, err := svr.NewGrpcServer(conf, &handler)
 	if err != nil {
@@ -72,7 +71,7 @@ func main() {
 		log.Log.Err(err).Msg("failed to initialize database")
 		panic(err)
 	}
-	resources.CreateSchema()
+	resources.StoredVehicle{}.CreateSchema()
 	defer db.Close()
 
 	// init rest api server

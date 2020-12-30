@@ -59,7 +59,7 @@ func (server *GrpcServer) WaitForShutdown(terminate <-chan os.Signal, done chan 
 }
 
 // TODO: consider using gogo extensions for a single shared struct type
-func resourceToProto(resource *StoredResource) (*proto.Vehicle, error) {
+func resourceToProto(resource interface{}) (*proto.Vehicle, error) {
 	bytes, err := Marshal("application/json", resource)
 	if err != nil {
 		return nil, err
@@ -72,12 +72,12 @@ func resourceToProto(resource *StoredResource) (*proto.Vehicle, error) {
 	return vehicle, nil
 }
 
-func protoToResource(vehicle *proto.Vehicle) (StoredResource, error) {
+func protoToResource(vehicle *proto.Vehicle) (interface{}, error) {
 	bytes, err := Marshal("application/json", vehicle)
 	if err != nil {
 		return nil, err
 	}
-	var resource StoredResource
+	var resource interface{}
 	if err = Unmarshal("application/json", bytes, resource); err != nil {
 		return nil, err
 	}
@@ -111,11 +111,12 @@ func (handler *GrpcHandler) CreateVehicle(ctx context.Context, vehicle *proto.Ve
 		log.Log.Err(err).Msg("Error converting protobuf to resource")
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if err := resource.Validate("POST"); err != nil {
+	if err := handler.Resource.Validate(resource, http.MethodPost); err != nil {
 		log.Log.Err(err).Msg("Invalid format")
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if sErr := resource.Create(); sErr != nil {
+	storedResource, sErr := handler.Resource.Create(resource)
+	if sErr != nil {
 		log.Log.Err(sErr.Error).Msg("Error creating vehicle")
 		code := codes.Internal
 		if sErr.StatusCode == http.StatusBadRequest {
@@ -123,7 +124,7 @@ func (handler *GrpcHandler) CreateVehicle(ctx context.Context, vehicle *proto.Ve
 		}
 		return nil, status.Error(code, sErr.Error.Error())
 	}
-	v, err := resourceToProto(&resource)
+	v, err := resourceToProto(&storedResource)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -137,18 +138,19 @@ func (handler *GrpcHandler) UpdateVehicle(ctx context.Context, vehicle *proto.Ve
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if err = resource.Validate("PUT"); err != nil {
+	if err = handler.Resource.Validate(resource, http.MethodPut); err != nil {
 		log.Log.Err(err).Msg("Invalid vehicle format")
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	vars := map[string]string{
 		"vin": vehicle.Vin,
 	}
-	if sErr := resource.Update(vars); err != nil {
+	storedResource, sErr := handler.Resource.Update(resource, vars)
+	if sErr != nil {
 		log.Log.Err(sErr.Error).Msg("Error updating vehicle")
 		return nil, status.Error(codes.Internal, sErr.Error.Error())
 	}
-	v, err := resourceToProto(&resource)
+	v, err := resourceToProto(&storedResource)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -189,7 +191,7 @@ func (handler *GrpcHandler) SearchVehicles(query *proto.VehicleQuery, stream pro
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
-	resources, sErr := handler.Resource.Search(&queryValues)
+	resources, sErr := handler.Resource.Search(queryValues)
 	if sErr != nil {
 		code := codes.Internal
 		if sErr.StatusCode == http.StatusBadRequest {
