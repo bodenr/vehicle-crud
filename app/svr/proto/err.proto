@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package err;
+
+option (gogoproto.populate_all) = true;
+option go_package = "proto";
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+// only used for protobuf over rest/http
+message ErrorResponse {
+    string Message = 1 [(gogoproto.jsontag) = "error_message", (gogoproto.moretags) = "xml:\"error_message\""];
+}

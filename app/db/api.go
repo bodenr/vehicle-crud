@@ -1,3 +1,4 @@
+// Package db provides database specific implementation.
 package db
 
 import (
@@ -22,11 +23,13 @@ func init() {
 	lock = &sync.Mutex{}
 }
 
+// isConnectionError checks if the given error is connection refused.
 func isConnectionError(err error) bool {
 	// TODO: find a way to not check error string
 	return strings.Contains(err.Error(), "connection refused")
 }
 
+// connect tries to connect to the database using the said dsn.
 func connect(dsn string) (*sqlx.DB, error) {
 	db, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
@@ -36,6 +39,7 @@ func connect(dsn string) (*sqlx.DB, error) {
 	return db, nil
 }
 
+// connectRetry retries connecting with the said dsn in cases of connection error.
 func connectRetry(dsn string, retries int, delay time.Duration) (*sqlx.DB, error) {
 	for retry := 0; retry < retries; retry++ {
 		db, err := connect(dsn)
@@ -48,6 +52,7 @@ func connectRetry(dsn string, retries int, delay time.Duration) (*sqlx.DB, error
 	return nil, fmt.Errorf("Database connection failed after %d attempts", retries)
 }
 
+// Initialize should be called to initialize the database connection prior to GetDB.
 func Initialize(conf *config.DatabaseConfig) error {
 	lock.Lock()
 	defer lock.Unlock()
@@ -76,6 +81,7 @@ func Initialize(conf *config.DatabaseConfig) error {
 	return nil
 }
 
+// GetDB returns a reference to the singleton database, which maybe nil if not yet created via Initialize.
 func GetDB() *sqlx.DB {
 	if database == nil {
 		log.Log.Warn().Msg("database accessed before initialization")
@@ -83,6 +89,8 @@ func GetDB() *sqlx.DB {
 	return database
 }
 
+// Close closes the database connection and clears the singleton database reference.
+// This method is idempotent.
 func Close() error {
 	lock.Lock()
 	defer lock.Unlock()

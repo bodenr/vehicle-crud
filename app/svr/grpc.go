@@ -14,19 +14,21 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
+// GrpcHandler wraps GRPC handling for the given StoredResource.
 type GrpcHandler struct {
 	proto.UnimplementedVehicleStoreServer
 	Resource StoredResource
 }
 
+// GrpcServer the GRPC server and listener.
 type GrpcServer struct {
 	Server   *grpc.Server
 	Listener net.Listener
 }
 
+// NewGrpcServer creates a new GrpcServer for the given config and handler.
 func NewGrpcServer(conf *config.GrpcConfig, handler *GrpcHandler) (*GrpcServer, error) {
 	listener, err := net.Listen("tcp", conf.Address)
 	if err != nil {
@@ -44,11 +46,13 @@ func NewGrpcServer(conf *config.GrpcConfig, handler *GrpcHandler) (*GrpcServer, 
 	}, nil
 }
 
+// Run starts the GRPC server and is blocking.
 func (server *GrpcServer) Run() error {
 	log.Log.Info().Msg("starting grpc server")
 	return server.Server.Serve(server.Listener)
 }
 
+// WaitForShutdown waits on the terminate channel and shuts down the GRPC server upon signal.
 func (server *GrpcServer) WaitForShutdown(terminate <-chan os.Signal, done chan bool) {
 	termSig := <-terminate
 
@@ -58,32 +62,7 @@ func (server *GrpcServer) WaitForShutdown(terminate <-chan os.Signal, done chan 
 	close(done)
 }
 
-// TODO: consider using gogo extensions for a single shared struct type
-func resourceToProto(resource interface{}) (*proto.Vehicle, error) {
-	bytes, err := Marshal("application/json", resource)
-	if err != nil {
-		return nil, err
-	}
-	var vehicle *proto.Vehicle
-	if err = Unmarshal("application/json", bytes, vehicle); err != nil {
-		return vehicle, err
-	}
-
-	return vehicle, nil
-}
-
-func protoToResource(vehicle *proto.Vehicle) (interface{}, error) {
-	bytes, err := Marshal("application/json", vehicle)
-	if err != nil {
-		return nil, err
-	}
-	var resource interface{}
-	if err = Unmarshal("application/json", bytes, resource); err != nil {
-		return nil, err
-	}
-	return resource, nil
-}
-
+// GetVehicle handle getting a vehicle for GRPC.
 func (handler *GrpcHandler) GetVehicle(ctx context.Context, vin *proto.VehicleVIN) (*proto.Vehicle, error) {
 	vars := map[string]string{
 		"vin": vin.GetVin(),
@@ -98,24 +77,17 @@ func (handler *GrpcHandler) GetVehicle(ctx context.Context, vin *proto.VehicleVI
 		return nil, status.Error(code, err.Error.Error())
 	}
 
-	v, rErr := resourceToProto(&resource)
-	if rErr != nil {
-		return nil, status.Error(codes.Internal, rErr.Error())
-	}
-	return v, nil
+	v := resource.(proto.Vehicle)
+	return &v, nil
 }
 
+// CreateVehicle handler creating a vehicle over GRPC.
 func (handler *GrpcHandler) CreateVehicle(ctx context.Context, vehicle *proto.Vehicle) (*proto.Vehicle, error) {
-	resource, err := protoToResource(vehicle)
-	if err != nil {
-		log.Log.Err(err).Msg("Error converting protobuf to resource")
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	if err := handler.Resource.Validate(resource, http.MethodPost); err != nil {
+	if err := handler.Resource.Validate(vehicle, http.MethodPost); err != nil {
 		log.Log.Err(err).Msg("Invalid format")
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	storedResource, sErr := handler.Resource.Create(resource)
+	storedResource, sErr := handler.Resource.Create(vehicle)
 	if sErr != nil {
 		log.Log.Err(sErr.Error).Msg("Error creating vehicle")
 		code := codes.Internal
@@ -124,40 +96,31 @@ func (handler *GrpcHandler) CreateVehicle(ctx context.Context, vehicle *proto.Ve
 		}
 		return nil, status.Error(code, sErr.Error.Error())
 	}
-	v, err := resourceToProto(&storedResource)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return v, nil
+	v := storedResource.(proto.Vehicle)
+	return &v, nil
 }
 
+// UpdateVehicle handle updating a vehicle over GRPC.
 func (handler *GrpcHandler) UpdateVehicle(ctx context.Context, vehicle *proto.Vehicle) (*proto.Vehicle, error) {
-	resource, err := protoToResource(vehicle)
-	if err != nil {
-		log.Log.Err(err).Msg("Error converting protobuf to resource")
-		return nil, status.Error(codes.Internal, err.Error())
-	}
 
-	if err = handler.Resource.Validate(resource, http.MethodPut); err != nil {
+	if err := handler.Resource.Validate(vehicle, http.MethodPut); err != nil {
 		log.Log.Err(err).Msg("Invalid vehicle format")
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	vars := map[string]string{
 		"vin": vehicle.Vin,
 	}
-	storedResource, sErr := handler.Resource.Update(resource, vars)
+	storedResource, sErr := handler.Resource.Update(vehicle, vars)
 	if sErr != nil {
 		log.Log.Err(sErr.Error).Msg("Error updating vehicle")
 		return nil, status.Error(codes.Internal, sErr.Error.Error())
 	}
-	v, err := resourceToProto(&storedResource)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return v, nil
+	v := storedResource.(proto.Vehicle)
+	return &v, nil
 }
 
-func (handler *GrpcHandler) DeleteVehicle(ctx context.Context, vehicleVin *proto.VehicleVIN) (*emptypb.Empty, error) {
+// DeleteVehicle handles deleting a vehicle over GRPC.
+func (handler *GrpcHandler) DeleteVehicle(ctx context.Context, vehicleVin *proto.VehicleVIN) (*proto.EmptyMessage, error) {
 	vars := map[string]string{
 		"vin": vehicleVin.Vin,
 	}
@@ -166,26 +129,25 @@ func (handler *GrpcHandler) DeleteVehicle(ctx context.Context, vehicleVin *proto
 		log.Log.Err(err.Error).Str(log.VIN, vehicleVin.Vin).Msg("Error deleting vehicle")
 		return nil, status.Error(codes.Internal, err.Error.Error())
 	}
-	return nil, nil
+	return &proto.EmptyMessage{}, nil
 }
 
-func (handler *GrpcHandler) ListVehicles(e *emptypb.Empty, stream proto.VehicleStore_ListVehiclesServer) error {
+// ListVehicles handles listing vehicles over GRPC.
+func (handler *GrpcHandler) ListVehicles(e *proto.EmptyMessage, stream proto.VehicleStore_ListVehiclesServer) error {
 	resources, sErr := handler.Resource.List()
 	if sErr != nil {
 		return status.Error(codes.Internal, sErr.Error.Error())
 	}
 	for _, resource := range resources {
-		v, err := resourceToProto(&resource)
-		if err != nil {
-			return status.Error(codes.Internal, err.Error())
-		}
-		if err = stream.Send(v); err != nil {
+		v := resource.(proto.Vehicle)
+		if err := stream.Send(&v); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// SearchVehicles handles searching for vehciles over GRPC.
 func (handler *GrpcHandler) SearchVehicles(query *proto.VehicleQuery, stream proto.VehicleStore_SearchVehiclesServer) error {
 	queryValues, err := url.ParseQuery(query.Query)
 	if err != nil {
@@ -200,11 +162,8 @@ func (handler *GrpcHandler) SearchVehicles(query *proto.VehicleQuery, stream pro
 		return status.Error(code, sErr.Error.Error())
 	}
 	for _, resource := range resources {
-		v, err := resourceToProto(&resource)
-		if err != nil {
-			return status.Error(codes.Internal, err.Error())
-		}
-		if err = stream.Send(v); err != nil {
+		v := resource.(proto.Vehicle)
+		if err = stream.Send(&v); err != nil {
 			return err
 		}
 	}

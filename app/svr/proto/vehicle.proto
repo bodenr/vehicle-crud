@@ -1,18 +1,18 @@
-// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative ./vehicle.proto
 syntax = "proto3";
 
 package vehicle;
 
-option go_package = "github.com/bodenr/vehicle-api/svr/proto";
+option (gogoproto.populate_all) = true;
+option go_package = "proto";
 
-import "google/protobuf/empty.proto";
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
 service VehicleStore {
     rpc GetVehicle(VehicleVIN) returns (Vehicle) {}
     rpc CreateVehicle(Vehicle) returns (Vehicle) {}
     rpc UpdateVehicle(Vehicle) returns (Vehicle) {}
-    rpc DeleteVehicle(VehicleVIN) returns (google.protobuf.Empty) {}
-    rpc ListVehicles(google.protobuf.Empty) returns (stream Vehicle) {}
+    rpc DeleteVehicle(VehicleVIN) returns (EmptyMessage) {}
+    rpc ListVehicles(EmptyMessage) returns (stream Vehicle) {}
     rpc SearchVehicles(VehicleQuery) returns (stream Vehicle) {}
 }
 
@@ -20,15 +20,20 @@ message VehicleVIN {
     string vin = 1;
 }
 
+// TODO: consider creating a separate request/reponse vehicle since updated_at can't be set on request
 message Vehicle {
-    string vin = 1;
-    string make = 2;
-    string model = 3;
-    int32 year = 4;
-    string exterior_color = 5;
-    string interior_color = 6;
+    string vin = 1 [(gogoproto.moretags) = "xml:\"vin\""];
+    string make = 2 [(gogoproto.moretags) = "xml:\"make\""];
+    string model = 3 [(gogoproto.moretags) = "xml:\"model\""];
+    int32 year = 4 [(gogoproto.moretags) = "xml:\"year\""];
+    string exterior_color = 5 [(gogoproto.moretags) = "db:\"exterior_color\" xml:\"exterior_color\""];
+    string interior_color = 6 [(gogoproto.moretags) = "db:\"interior_color\" xml:\"interior_color\""];
+    int64 updated_at = 7 [(gogoproto.moretags) = "db:\"updated_at\" xml:\"updated_at\""];
 }
 
 message VehicleQuery {
     string query = 1; // standard HTTP URL query format
+}
+
+message EmptyMessage {
 }

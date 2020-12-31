@@ -1,3 +1,4 @@
+// Package main contains the entry point for the application.
 package main
 
 import (
@@ -40,13 +41,13 @@ func startGrpcServer(conf *config.GrpcConfig) <-chan bool {
 	}
 	server, err := svr.NewGrpcServer(conf, &handler)
 	if err != nil {
-		log.Log.Err(err).Msg("failed to create grpc server")
+		log.Log.Err(err).Msg("Failed to create grpc server")
 		panic(err)
 	}
 
 	go func() {
 		if err := server.Run(); err != nil {
-			log.Log.Err(err).Msg("failed to start grpc server")
+			log.Log.Err(err).Msg("Failed to start grpc server")
 			panic(err)
 		}
 	}()
@@ -56,7 +57,7 @@ func startGrpcServer(conf *config.GrpcConfig) <-chan bool {
 }
 
 func main() {
-	log.Log.Info().Msg("service starting")
+	log.Log.Info().Msg("Service starting")
 
 	// init database
 	dbConfig := config.DatabaseConfig{
@@ -67,8 +68,11 @@ func main() {
 		ConnectBackoff: time.Duration(1) * time.Second,
 	}
 	dbConfig.Load()
+	// NB: it can take up to a few seconds until the database is accepting connections when
+	// started using docker compose, so hold off on starting the servers until we're sure we
+	// can connect to the database
 	if err := db.Initialize(&dbConfig); err != nil {
-		log.Log.Err(err).Msg("failed to initialize database")
+		log.Log.Err(err).Msg("Failed to initialize database")
 		panic(err)
 	}
 	resources.StoredVehicle{}.CreateSchema()
@@ -92,5 +96,5 @@ func main() {
 	<-httpStopped
 	<-grpcStopped
 
-	log.Log.Info().Msg("stopping service")
+	log.Log.Info().Msg("Stopped service")
 }

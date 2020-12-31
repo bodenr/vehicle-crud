@@ -1,9 +1,18 @@
 package log
 
 const (
-	Binary   = "binary"
+	// Binary log key.
+	Binary = "binary"
+
+	// Hostname log key.
 	Hostname = "hostname"
-	Query    = "query"
-	Signal   = "signal"
-	VIN      = "vin"
+
+	// Query log key.
+	Query = "query"
+
+	// Signal log key.
+	Signal = "signal"
+
+	// VIN log key.
+	VIN = "vin"
 )
