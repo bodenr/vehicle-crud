@@ -126,7 +126,12 @@ func (v StoredVehicle) Search(queryParams url.Values) ([]interface{}, *svr.Store
 				StatusCode: http.StatusBadRequest,
 			}
 		}
-		s := fmt.Sprintf("%s IN ('%s')", col, strings.Join(vals[:], ","))
+		// TODO: rework SQL to prevent injection vector
+		stm := "%s IN ('%s')"
+		if col == "year" {
+			stm = "%s IN (%s)"
+		}
+		s := fmt.Sprintf(stm, col, strings.Join(vals[:], ","))
 		inStatements = append(inStatements, s)
 	}
 	statement = fmt.Sprintf("%s %s", statement, strings.Join(inStatements[:], " AND "))
@@ -246,8 +251,9 @@ func (v StoredVehicle) Update(resource interface{}, requestVars svr.RequestVars)
 	vin := requestVars["vin"]
 	store := db.GetDB()
 
+	ts := util.TimeMillis()
 	_, err := store.Exec("UPDATE vehicles SET make=$1, model=$2, year=$3, exterior_color=$4, interior_color=$5, updated_at=$6 WHERE vin=$7",
-		vehicle.Make, vehicle.Model, vehicle.Year, vehicle.ExteriorColor, vehicle.InteriorColor, util.TimeMillis(), vin)
+		vehicle.Make, vehicle.Model, vehicle.Year, vehicle.ExteriorColor, vehicle.InteriorColor, ts, vin)
 	if err != nil {
 		log.Log.Err(err).Msg("Database error updating vehicle")
 		return nil, &svr.StoreError{
@@ -256,6 +262,7 @@ func (v StoredVehicle) Update(resource interface{}, requestVars svr.RequestVars)
 		}
 	}
 	vehicle.Vin = vin
+	vehicle.UpdatedAt = ts
 	return vehicle, nil
 }
 

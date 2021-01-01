@@ -1,19 +1,18 @@
 ## Forward
 
-This repo is a WIP; not intended for consumption!
+Implements a basic CRUD containerized application that exposes vehicle resources over a REST and gRPC API.
 
-Implements a CRUD containerized application that exposes vehicle resources over a REST and gRPC API.
+## REST API
 
-## REST Resources
+- GET         /api/vehicles                                <-- get all vehicles
+- GET         /api/vehicles?exterior_color=red&make=dodge  <-- - search vehicles
+- POST        /api/vehicles                                <-- create a new vehicle
+- GET         /api/vehicles/{vin}                          <-- get specific vehicle by VIN; ETag supported
+- DELETE      /api/vehicles/{vin}                          <-- delete vehicle by VIN; ETag supported
+- PUT         /api/vehicles/{vin}                          <-- update a vehicle; ETag supported
 
-- GET         /api/vehicles  <-- get all vehicles
-- GET         /api/vehicles?exterior_color=red&make=dodge <-- - search vehicles
-- POST        /api/vehicles <-- create a new vehicle
-- GET         /api/vehicles/{vin} <-- get specific vehicle by VIN
-- DELETE      /api/vehicles/{vin} <-- delete vehicle by VIN
-- PUT         /api/vehicles/{vin} <-- update a vehicle
+ETag support is provided for getting, updating, and deleting a specific vehicle.
 
-ETag support is provided for getting, updating, deleting a specific vehicle.
 The following content types are supported:
 
 - `application/json`
@@ -43,4 +42,8 @@ A sample vehicle is shown below in `JSON` format; `vin` is the primary key and m
 
 Simply clone the repo, optionally updating any `environment` settings in the `docker-compose.yaml`, and run it with `docker-compose`.
 
-`git clone git@github.com:bodenr/vehicle-crud.git && cd ./vehicle-crud && docker-compose up`
+1. Clone the repo: `git clone git@github.com:bodenr/vehicle-crud.git && cd ./vehicle-crud`
+2. (Optional) Update the `docker-compose.yaml` environment settings to your liking.
+3. Run the app: `docker-compose up`
+
+Note that when starting a basic set of integration tests are run via the `app_test` container to ensure the REST API is kosher.

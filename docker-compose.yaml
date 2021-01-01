@@ -30,3 +30,13 @@ services:
       GRPC_ADDRESS: :10010
     depends_on:
       - postgres
+  test:
+    build:
+      context: ./app_test
+      dockerfile: Dockerfile
+    environment:
+      API_HOSTNAME: app
+      API_PORT: 8080
+    depends_on:
+      - postgres
+      - app
