@@ -16,7 +16,7 @@ services:
   app:
     build:
       context: ./app
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.${BUILD_TYPE}
     environment:
       DB_USERNAME: goapp
       DB_PASSWORD: ytjvtmdWMR58kD
