@@ -1,0 +1,5 @@
+FROM golang:1.14.0-buster
+WORKDIR /go/src/app
+COPY . .
+RUN GORACE="halt_on_error=1" go build -race -a -installsuffix cgo
+CMD ["/go/src/app/vehicle-api"]
